@@ -1,6 +1,6 @@
 # S2ML — Subnautica 2 Modding Library
 
-**Version:** 3.0.0  
+**Version:** 3.1.0  
 **Target:** Subnautica 2 Early Access · UE 5.6 · UE4SS 3.0.1  
 **Role:** Nautilus-style Lua API for UE4SS mods (items, recipes, tech, player, world, events)
 
@@ -26,7 +26,7 @@ Optional debug mode: create `ue4ss/Mods/S2ML/S2ML_debug.flag` (empty file).
 ```lua
 -- YourMod/Scripts/main.lua
 local S2 = require("S2MLBridge")
-S2.RequireVersion("3.0.0")
+S2.RequireVersion("3.1.0")
 
 S2.Player.WhenReady(function(PC)
     S2.Notify.Message("Hello from my mod!")
@@ -48,13 +48,16 @@ Copy `ModTemplate/` as a starting point.
 
 | Function | Description |
 |----------|-------------|
-| `S2ML.Log(msg, level?)` | Log to UE4SS console (`INFO`, `DEBUG`, `WARN`) |
+| `S2ML.Log(msg, level?)` | Log to UE4SS console (`TRACE/DEBUG/INFO/WARN/ERROR`) |
 | `S2ML.SafeCall(fn, ...)` | pcall wrapper; returns values or `false, err` |
 | `S2ML.GetPC()` | Cached local PlayerController |
 | `S2ML.Init()` | Validates UE4SS APIs (called automatically) |
-| `S2ML.RequireVersion("3.0.0")` | Version gate for child mods |
+| `S2ML.RequireVersion("3.1.0")` | Version gate for child mods |
 | `S2ML.Reset()` | Clear session caches and event listeners |
 | `S2ML.GetModules()` | List loaded API module names |
+| `S2ML.SetLogLevel(level)` | Set runtime log level |
+| `S2ML.CheckRequiredAPIs()` | Validate required UE4SS APIs |
+| `S2ML.IsValid(obj)` | Safe UObject validity check |
 
 ### S2ML.Events
 
@@ -72,9 +75,14 @@ Pub/sub event bus + built-in game hooks.
 | Function | Description |
 |----------|-------------|
 | `Subscribe(event, fn)` | Add listener |
+| `UnsubscribeById(event, id)` | Remove listener by id |
 | `Unsubscribe(event, fn)` | Remove listener |
 | `Once(event, fn)` | One-shot listener |
 | `Clear(event)` | Remove all listeners |
+| `ClearAll()` | Remove all listeners across all events |
+| `Count(event)` | Listener count for event |
+| `GetEventNames()` | List known event names |
+| `WaitFor(event, callback, timeoutMs?)` | Wait for event with timeout |
 | `Trigger(event, ...)` | Fire custom event |
 
 ### S2ML.Player
@@ -87,9 +95,15 @@ Pub/sub event bus + built-in game hooks.
 | `GetLocation(PC?)` | `{ X, Y, Z }` world position |
 | `GetRotation(PC?)` | `{ Pitch, Yaw, Roll }` |
 | `GetDepth(PC?)` | Depth stat or Z-estimate |
+| `GetSpeed(PC?)` | Current pawn speed |
+| `GetName(PC?)` | Player/controller name |
+| `IsUnderwater(PC?)` | Underwater heuristic |
 | `GetStat(name, PC?)` | Discovery-based stat read |
 | `Teleport(loc, PC?, sweep?)` | Move player |
+| `TeleportForward(distance, PC?)` | Move forward from view direction |
+| `TeleportToSurface(PC?, meters?)` | Move player near surface |
 | `WhenReady(fn)` | Callback after spawn (lobby-safe) |
+| `WaitForSpawn(fn, timeoutMs?)` | Readiness callback with timeout result |
 | `NormalizeVector(v)` | FVector table normalizer |
 | `Distance(a, b)` | 3D distance |
 
@@ -103,7 +117,13 @@ Pub/sub event bus + built-in game hooks.
 | `GetCount(item, target?)` | Item quantity |
 | `Has(item, count?, target?)` | Boolean check |
 | `GetAll(target?)` | All items in container |
+| `CountAll(target?)` | Count all inventory entries |
+| `EachItem(target?, fn)` | Iterate each item safely |
 | `GetContainersNear(loc, radius?)` | Nearby StorageContainers |
+| `FindNearestContainer(loc, radius?)` | Nearest nearby container |
+| `GiveMany(list, target?)` | Batch give item list |
+| `Transfer(item, amount, from, to)` | Move item between containers |
+| `DropAtPlayer(item, amount?)` | Drop pickup(s) near player |
 
 ### S2ML.Items
 
@@ -202,7 +222,7 @@ UE helper wrappers: `GetGameplayStatics()`, `GetKismetSystemLibrary()`, `GetWorl
 
 ### S2ML.Config
 
-Key=value config files: `Load(path, defaults?)`, `Save(path, cfg)`, `Get(path, key, default)`, `Set(path, key, value)`.
+Key=value config files: `Load`, `Save`, `LoadOrCreate`, `Get`, `Set`, `GetNumber`, `GetBool`, `GetString`, `Delete`, `Has`, `Keys`, `Invalidate`.
 
 ### S2ML.Time
 
@@ -211,7 +231,13 @@ Key=value config files: `Load(path, defaults?)`, `Save(path, cfg)`, `Get(path, k
 | `Delay(ms, fn)` | One-shot delayed callback |
 | `Repeat(intervalMs, fn, maxRuns?)` | Repeating timer; returns id |
 | `Cancel(timerId)` | Stop repeating timer |
+| `CancelAll()` | Stop all timers |
+| `IsActive(timerId)` | Timer active state |
 | `OnGameThread(fn)` | ExecuteInGameThread wrapper |
+| `NowMs()` | Current timestamp (ms) |
+| `UptimeMs()` | Library uptime (ms) |
+| `Debounce(ms, fn)` | Debounced function wrapper |
+| `Throttle(ms, fn)` | Throttled function wrapper |
 | `GameSeconds()` | World time if available |
 
 ### S2ML.Interact
@@ -239,10 +265,16 @@ Central registry of class paths and function name candidates. Update after probi
 ```
 s2ml version
 s2ml modules
+s2ml debug
+s2ml loglevel DEBUG
 s2ml give Battery 5
 s2ml save
 s2ml tp 0 0 -1000
+s2ml tpf 300
 s2ml depth
+s2ml whereami
+s2ml api
+s2ml events
 s2ml probe
 s2ml inspect StorageContainer
 s2ml inv
@@ -285,7 +317,7 @@ mods.txt
 - **Minor:** New modules or backward-compatible features
 - **Patch:** Bug fixes, new KnownClasses entries
 
-Child mods should call `S2.RequireVersion("3.0.0")` at startup.
+Child mods should call `S2.RequireVersion("3.1.0")` at startup.
 
 ---
 

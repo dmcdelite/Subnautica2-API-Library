@@ -31,8 +31,14 @@ local MODULES = {
     "S2ML_Probe",
 }
 
+local _loaded = {}
+local _failed = {}
 for _, mod in ipairs(MODULES) do
-    SafeRequire(mod)
+    if SafeRequire(mod) then
+        table.insert(_loaded, mod)
+    else
+        table.insert(_failed, mod)
+    end
 end
 
 if type(S2ML) ~= "table" then
@@ -41,6 +47,10 @@ if type(S2ML) ~= "table" then
 end
 
 S2ML.Init()
+
+if #_failed > 0 then
+    S2ML.WarnOnce("module_fail", "Some modules failed to load: " .. table.concat(_failed, ", "))
+end
 
 -- Post-world-load injection (runs once after first player spawn)
 S2ML.Events.Subscribe("OnPlayerSpawned", function(PC)
@@ -78,6 +88,36 @@ if type(ConsoleHelper) == "table" then
                 })
             elseif sub == "depth" then
                 S2ML.Log("Depth: " .. tostring(S2ML.Player.GetDepth()))
+            elseif sub == "debug" then
+                S2ML.DebugMode = not S2ML.DebugMode
+                if S2ML.DebugMode then S2ML.SetLogLevel("DEBUG") end
+                S2ML.Log("Debug mode: " .. tostring(S2ML.DebugMode))
+            elseif sub == "loglevel" and parts[3] then
+                if S2ML.SetLogLevel(parts[3]) then
+                    S2ML.Log("Log level set to " .. tostring(parts[3]))
+                else
+                    S2ML.Log("Invalid log level. Use TRACE|DEBUG|INFO|WARN|ERROR", "WARN")
+                end
+            elseif sub == "whereami" then
+                local loc = S2ML.Player.GetLocation()
+                if loc then
+                    S2ML.Log(string.format("Location X=%.1f Y=%.1f Z=%.1f", loc.X, loc.Y, loc.Z))
+                else
+                    S2ML.Log("No player location available.", "WARN")
+                end
+            elseif sub == "tpf" and parts[3] then
+                S2ML.Player.TeleportForward(tonumber(parts[3]) or 300)
+            elseif sub == "api" then
+                local ok, missing = S2ML.CheckRequiredAPIs(true)
+                if ok then
+                    S2ML.Log("UE4SS APIs OK")
+                else
+                    S2ML.Log("Missing APIs: " .. table.concat(missing, ", "), "WARN")
+                end
+            elseif sub == "events" then
+                for _, eventName in ipairs(S2ML.Events.GetEventNames()) do
+                    S2ML.Log(string.format("%s (%d)", eventName, S2ML.Events.Count(eventName)))
+                end
             elseif sub == "probe" and S2ML.Probe then
                 S2ML.Probe.Run()
             elseif sub == "inspect" and S2ML.Probe then
@@ -87,7 +127,7 @@ if type(ConsoleHelper) == "table" then
             elseif sub == "reset" then
                 S2ML.Reset()
             else
-                S2ML.Log("S2ML: version | modules | give | save | tp | depth | probe | inspect | inv | reset")
+                S2ML.Log("S2ML: version | modules | debug | loglevel <lvl> | give | save | tp | tpf | depth | whereami | api | events | probe | inspect | inv | reset")
             end
             return
         end
@@ -95,5 +135,6 @@ if type(ConsoleHelper) == "table" then
     end
 end
 
-S2ML.Log("Subnautica 2 Modding Library v" .. S2ML.Version .. " ready.")
+S2ML.Log(string.format("Subnautica 2 Modding Library v%s ready (%d/%d modules).",
+    S2ML.Version, #_loaded, #MODULES))
 S2ML.Log("Ctrl+P=probe  Ctrl+I=inspect  Ctrl+U=inventory  |  Console: s2ml help")

@@ -93,7 +93,7 @@ function KC.CDO(shortName)
 end
 
 function KC.TryCall(obj, fnList, ...)
-    if not obj then return false end
+    if not obj or type(fnList) ~= "table" then return false end
     local args = { ... }
     for _, fn in ipairs(fnList) do
         local ok, result = pcall(function()
@@ -109,23 +109,57 @@ function KC.FindFirst(classNames)
     for _, name in ipairs(classNames) do
         local obj = nil
         S2ML.SafeCall(function() obj = FindFirstOf(name) end)
-        if obj and obj:IsValid() then return obj, name end
+        if S2ML.IsValid(obj) then return obj, name end
     end
     return nil
 end
 
 function KC.FindComponent(owner, compNames)
-    if not owner or not owner:IsValid() then return nil end
+    if not S2ML.IsValid(owner) then return nil end
     if type(compNames) == "string" then compNames = { compNames } end
     for _, name in ipairs(compNames) do
         local comp = nil
         S2ML.SafeCall(function()
             local c = owner[name]
-            if c and c:IsValid() then comp = c end
+            if S2ML.IsValid(c) then comp = c end
         end)
         if comp then return comp, name end
     end
     return nil
+end
+
+function KC.FindAny(classes)
+    if type(classes) ~= "table" then return nil end
+    for _, cls in ipairs(classes) do
+        local obj = nil
+        S2ML.SafeCall(function() obj = FindFirstOf(cls) end)
+        if S2ML.IsValid(obj) then return obj, cls end
+    end
+    return nil
+end
+
+function KC.TryProperty(obj, names)
+    if not obj or type(names) ~= "table" then return nil end
+    for _, name in ipairs(names) do
+        local value = nil
+        local ok = pcall(function() value = obj[name] end)
+        if ok and value ~= nil then return value, name end
+    end
+    return nil
+end
+
+function KC.CallAny(obj, names, ...)
+    if not obj or type(names) ~= "table" then return false end
+    local args = { ... }
+    for _, name in ipairs(names) do
+        local ok, val = pcall(function() return obj[name](obj, table.unpack(args)) end)
+        if ok then return true, val, name end
+    end
+    return false
+end
+
+function KC.GetHookPath(classShortName, fnName)
+    return string.format("%s.%s:%s", KC.Module, classShortName, fnName)
 end
 
 S2ML.Log("S2ML_KnownClasses loaded.", "DEBUG")

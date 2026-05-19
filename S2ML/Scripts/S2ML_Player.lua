@@ -2,6 +2,11 @@
 -- Local player access: pawn, location, rotation, survival stats, teleport.
 
 S2ML.Player = S2ML.Player or {}
+S2ML.Player._cache = S2ML.Player._cache or {
+    location = nil,
+    rotation = nil,
+    timestamp = 0,
+}
 
 -- =============================================
 -- VECTOR HELPERS
@@ -25,6 +30,23 @@ function S2ML.Player.NormalizeVector(v)
         return { X = x + 0.0, Y = y + 0.0, Z = z + 0.0 }
     end
     return nil
+end
+
+function S2ML.Player.NewVector(x, y, z)
+    return { X = tonumber(x) or 0, Y = tonumber(y) or 0, Z = tonumber(z) or 0 }
+end
+
+function S2ML.Player.AddVector(a, b)
+    a = S2ML.Player.NormalizeVector(a) or S2ML.Player.NewVector(0, 0, 0)
+    b = S2ML.Player.NormalizeVector(b) or S2ML.Player.NewVector(0, 0, 0)
+    return { X = a.X + b.X, Y = a.Y + b.Y, Z = a.Z + b.Z }
+end
+
+function S2ML.Player.ScaleVector(v, scalar)
+    v = S2ML.Player.NormalizeVector(v)
+    scalar = tonumber(scalar) or 1
+    if not v then return nil end
+    return { X = v.X * scalar, Y = v.Y * scalar, Z = v.Z * scalar }
 end
 
 function S2ML.Player.Distance(a, b)
@@ -69,7 +91,12 @@ function S2ML.Player.GetLocation(PC)
     if not pawn then return nil end
     local loc = nil
     S2ML.SafeCall(function() loc = pawn:K2_GetActorLocation() end)
-    return S2ML.Player.NormalizeVector(loc)
+    loc = S2ML.Player.NormalizeVector(loc)
+    if loc then
+        S2ML.Player._cache.location = loc
+        S2ML.Player._cache.timestamp = S2ML.Time and S2ML.Time.NowMs and S2ML.Time.NowMs() or os.time() * 1000
+    end
+    return loc
 end
 
 function S2ML.Player.GetRotation(PC)
@@ -78,11 +105,13 @@ function S2ML.Player.GetRotation(PC)
     local rot = nil
     S2ML.SafeCall(function() rot = pawn:K2_GetActorRotation() end)
     if not rot then return nil end
-    return {
+    local rotOut = {
         Pitch = rot.Pitch or rot.pitch or 0,
         Yaw   = rot.Yaw   or rot.yaw   or 0,
         Roll  = rot.Roll  or rot.roll  or 0,
     }
+    S2ML.Player._cache.rotation = rotOut
+    return rotOut
 end
 
 function S2ML.Player.GetForwardVector(PC)
@@ -95,6 +124,17 @@ function S2ML.Player.GetForwardVector(PC)
         Y = math.cos(pitchRad) * math.sin(yawRad),
         Z = math.sin(pitchRad),
     }
+end
+
+function S2ML.Player.GetRightVector(PC)
+    local rot = S2ML.Player.GetRotation(PC)
+    if not rot then return nil end
+    local yawRad = math.rad((rot.Yaw or 0) + 90)
+    return { X = math.cos(yawRad), Y = math.sin(yawRad), Z = 0 }
+end
+
+function S2ML.Player.GetUpVector()
+    return { X = 0, Y = 0, Z = 1 }
 end
 
 function S2ML.Player.GetWorld(PC)
@@ -156,6 +196,21 @@ function S2ML.Player.GetDepth(PC)
     return nil
 end
 
+function S2ML.Player.GetSpeed(PC)
+    local pawn = S2ML.Player.GetPawn(PC)
+    if not pawn then return nil end
+    local vel = nil
+    S2ML.SafeCall(function() vel = pawn:GetVelocity() end)
+    vel = S2ML.Player.NormalizeVector(vel)
+    if not vel then return nil end
+    return math.sqrt(vel.X * vel.X + vel.Y * vel.Y + vel.Z * vel.Z)
+end
+
+function S2ML.Player.IsUnderwater(PC)
+    local depth = S2ML.Player.GetDepth(PC)
+    return depth and depth > 0 or false
+end
+
 -- =============================================
 -- TELEPORT
 -- =============================================
@@ -182,6 +237,46 @@ function S2ML.Player.TeleportOffset(offset, PC)
     }, PC)
 end
 
+function S2ML.Player.TeleportForward(distance, PC)
+    distance = tonumber(distance) or 100
+    local loc = S2ML.Player.GetLocation(PC)
+    local forward = S2ML.Player.GetForwardVector(PC)
+    if not loc or not forward then return false end
+    return S2ML.Player.Teleport({
+        X = loc.X + forward.X * distance,
+        Y = loc.Y + forward.Y * distance,
+        Z = loc.Z + forward.Z * distance,
+    }, PC)
+end
+
+function S2ML.Player.TeleportToSurface(PC, heightMeters)
+    local loc = S2ML.Player.GetLocation(PC)
+    if not loc then return false end
+    heightMeters = tonumber(heightMeters) or 2
+    return S2ML.Player.Teleport({
+        X = loc.X, Y = loc.Y, Z = heightMeters * 100
+    }, PC)
+end
+
+function S2ML.Player.GetName(PC)
+    PC = PC or S2ML.GetPC()
+    if not PC then return "Player" end
+    local name = nil
+    S2ML.SafeCall(function()
+        if PC.GetName then name = PC:GetName() end
+    end)
+    return tostring(name or "Player")
+end
+
+function S2ML.Player.GetCachedLocation(maxAgeMs)
+    maxAgeMs = tonumber(maxAgeMs) or 1000
+    local nowMs = S2ML.Time and S2ML.Time.NowMs and S2ML.Time.NowMs() or os.time() * 1000
+    if S2ML.Player._cache.location and (nowMs - (S2ML.Player._cache.timestamp or 0)) <= maxAgeMs then
+        return S2ML.Player._cache.location
+    end
+    return S2ML.Player.GetLocation()
+end
+
 -- =============================================
 -- READY CALLBACK (lobby-safe)
 -- =============================================
@@ -193,6 +288,17 @@ function S2ML.Player.WhenReady(callback)
         return
     end
     S2ML.Events.Once("OnPlayerSpawned", callback)
+end
+
+function S2ML.Player.WaitForSpawn(callback, timeoutMs)
+    timeoutMs = timeoutMs or 15000
+    if S2ML.Player.IsInGame() then
+        S2ML.SafeCall(callback, true, S2ML.GetPC())
+        return nil
+    end
+    return S2ML.Events.WaitFor("OnPlayerSpawned", function(ok, ...)
+        S2ML.SafeCall(callback, ok, ...)
+    end, timeoutMs)
 end
 
 S2ML.Log("S2ML_Player loaded.", "DEBUG")

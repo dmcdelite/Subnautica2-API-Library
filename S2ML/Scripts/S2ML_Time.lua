@@ -5,16 +5,25 @@ S2ML.Time = S2ML.Time or {}
 
 local _timers = {}
 local _nextId = 1
+local _startMs = os.time() * 1000
 
 function S2ML.Time.Delay(ms, fn)
-    if type(fn) ~= "function" then return end
+    if type(fn) ~= "function" then return nil end
+    ms = math.max(0, tonumber(ms) or 0)
+    local id = _nextId
+    _nextId = _nextId + 1
+    _timers[id] = true
     ExecuteInGameThreadWithDelay(ms, function()
+        if _timers[id] == false then return end
+        _timers[id] = false
         S2ML.SafeCall(fn)
     end)
+    return id
 end
 
 function S2ML.Time.Repeat(intervalMs, fn, maxRuns)
     if type(fn) ~= "function" then return nil end
+    intervalMs = math.max(1, tonumber(intervalMs) or 1)
     local id = _nextId
     _nextId = _nextId + 1
     local runs = 0
@@ -39,6 +48,16 @@ function S2ML.Time.Cancel(timerId)
     _timers[timerId] = false
 end
 
+function S2ML.Time.CancelAll()
+    for id in pairs(_timers) do
+        _timers[id] = false
+    end
+end
+
+function S2ML.Time.IsActive(timerId)
+    return _timers[timerId] == true
+end
+
 function S2ML.Time.OnGameThread(fn)
     if type(fn) ~= "function" then return end
     ExecuteInGameThread(function()
@@ -48,6 +67,38 @@ end
 
 function S2ML.Time.Now()
     return os.time()
+end
+
+function S2ML.Time.NowMs()
+    local frac = os.clock() * 1000
+    return os.time() * 1000 + math.floor(frac % 1000)
+end
+
+function S2ML.Time.UptimeMs()
+    return S2ML.Time.NowMs() - _startMs
+end
+
+function S2ML.Time.Debounce(waitMs, fn)
+    waitMs = tonumber(waitMs) or 100
+    local timerId = nil
+    return function(...)
+        local args = { ... }
+        if timerId then S2ML.Time.Cancel(timerId) end
+        timerId = S2ML.Time.Delay(waitMs, function()
+            S2ML.SafeCall(fn, table.unpack(args))
+        end)
+    end
+end
+
+function S2ML.Time.Throttle(intervalMs, fn)
+    intervalMs = tonumber(intervalMs) or 100
+    local lastMs = 0
+    return function(...)
+        local nowMs = S2ML.Time.NowMs()
+        if nowMs - lastMs < intervalMs then return end
+        lastMs = nowMs
+        S2ML.SafeCall(fn, ...)
+    end
 end
 
 function S2ML.Time.GameSeconds()
