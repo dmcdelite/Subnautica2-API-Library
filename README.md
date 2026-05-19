@@ -21,7 +21,10 @@ Nautilus-style UE4SS Lua API library for Subnautica 2 modding with UE4SS Lua.
 Enable your own mod after S2ML:
 S2ML : 1
 YourMod : 1
-Quick Start (Child Mod)
+
+
+Quick Start (Child Mod)---
+
 -- YourMod/Scripts/main.lua
 local S2 = require("S2MLBridge")
 S2.RequireVersion("3.0.0")
@@ -29,6 +32,8 @@ S2.Player.WhenReady(function(PC)
     S2.Notify.Message("My mod loaded!")
     S2.Inventory.Give("Battery", 2)
 end)
+
+
 Keybinds and Console Commands
 Keybinds
 Ctrl+P -> run full discovery probe
